@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import type { ImportedStoryFormat, ProcessedStoryData, AnalysisItem, RawAnalysisItem, CompleteStory, DisplayChapter, CommentObject, EditMode, ExportAnalysisItem, SimpleExportAnalysisItem } from './types';
 import FileImporter from './components/FileImporter';
@@ -7,6 +6,8 @@ import AnnotationModal from './components/AnnotationModal';
 import { DownloadIcon, EditIcon, UsersIcon, UserIcon } from './components/icons';
 
 const generateUniqueId = () => `id-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+const LOCAL_STORAGE_KEY = 'story-annotator-pro-saved-multi';
 
 const App: React.FC = () => {
   const [storyData, setStoryData] = useState<ProcessedStoryData | null>(null);
@@ -19,6 +20,12 @@ const App: React.FC = () => {
 
   const [editMode, setEditMode] = useState<EditMode>('single');
   const [bulkSelectedSentenceIds, setBulkSelectedSentenceIds] = useState<Set<string>>(new Set());
+  const [clipboardStatus, setClipboardStatus] = useState<string | null>(null);
+  const [localStatus, setLocalStatus] = useState<string | null>(null);
+  const [showOverwriteDialog, setShowOverwriteDialog] = useState(false);
+  const [pendingSaveData, setPendingSaveData] = useState<any>(null);
+  const [showLoadDialog, setShowLoadDialog] = useState(false);
+  const [savedTitles, setSavedTitles] = useState<string[]>([]);
 
   const handleFileLoad = useCallback((data: ImportedStoryFormat) => {
     setIsLoading(true);
@@ -350,14 +357,6 @@ const App: React.FC = () => {
               "Chapter Number": item["Chapter Number"],
               "Sentence Number": item["Sentence Number"],
               ...item.additionalAnalysis,
-              all_comments: item.comments.map(c => ({ // Ensure clean export of comments
-                  id: c.id,
-                  text: c.text,
-                  type: c.type,
-                  timestamp: c.timestamp,
-                  groupId: c.groupId,
-                  appliesToSentenceNumbers: c.appliesToSentenceNumbers
-              })), 
             };
             if (commentText) fullExportItem.comment = commentText;
             if (commentAppliesTo) fullExportItem["comment applies to sentences"] = commentAppliesTo;
@@ -401,6 +400,194 @@ const App: React.FC = () => {
   const handleFullExport = useCallback(() => commonExportLogic(false), [storyData, originalCompleteStory]);
   const handleSimpleExport = useCallback(() => commonExportLogic(true), [storyData, originalCompleteStory]);
 
+  // Clipboard import handler
+  const handleImportFromClipboard = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const text = await navigator.clipboard.readText();
+      if (!text) throw new Error("Clipboard is empty.");
+      let data: ImportedStoryFormat;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        throw new Error("Clipboard does not contain valid JSON.");
+      }
+      if (!data.Analysis || !data["The Complete Story"]) {
+        throw new Error("Clipboard JSON does not appear to be a valid story file.");
+      }
+      handleFileLoad(data);
+      setClipboardStatus("Imported from clipboard!");
+      setTimeout(() => setClipboardStatus(null), 2000);
+    } catch (e: any) {
+      setError(`Clipboard import failed: ${e.message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [handleFileLoad]);
+
+  // Clipboard export logic
+  const handleCopyExport = useCallback((isSimpleExport: boolean) => {
+    if (!storyData || !originalCompleteStory) {
+      setError("No story data to export.");
+      return;
+    }
+    const analysisExport: (ExportAnalysisItem | SimpleExportAnalysisItem)[] = [];
+    storyData.chapters.forEach((sentencesInChapter) => {
+      sentencesInChapter.forEach(item => {
+        const latestComment = item.comments.length > 0 
+          ? [...item.comments].sort((a, b) => b.timestamp - a.timestamp)[0]
+          : null;
+
+        let commentText: string | undefined = undefined;
+        let commentAppliesTo: string | undefined = undefined;
+
+        if (latestComment) {
+          commentText = latestComment.text;
+          if (latestComment.type === 'group' && latestComment.appliesToSentenceNumbers) {
+            commentAppliesTo = latestComment.appliesToSentenceNumbers.join(',');
+          }
+        }
+        
+        if (isSimpleExport) {
+            const simpleExportItem: SimpleExportAnalysisItem = {
+                "Sentence": item.Sentence,
+                "Sentence Number": item["Sentence Number"],
+            };
+            if (commentText) simpleExportItem.comment = commentText;
+            if (commentAppliesTo) simpleExportItem["comment applies to sentences"] = commentAppliesTo;
+            analysisExport.push(simpleExportItem);
+        } else {
+            const fullExportItem: ExportAnalysisItem = {
+              "Sentence": item.Sentence,
+              "Chapter Number": item["Chapter Number"],
+              "Sentence Number": item["Sentence Number"],
+              ...item.additionalAnalysis,
+            };
+            if (commentText) fullExportItem.comment = commentText;
+            if (commentAppliesTo) fullExportItem["comment applies to sentences"] = commentAppliesTo;
+            analysisExport.push(fullExportItem);
+        }
+      });
+    });
+
+    analysisExport.sort((a, b) => {
+      const aCh = isSimpleExport ? 0 : (a as ExportAnalysisItem)["Chapter Number"];
+      const bCh = isSimpleExport ? 0 : (b as ExportAnalysisItem)["Chapter Number"];
+      if (aCh !== bCh && !isSimpleExport) {
+        return aCh - bCh;
+      }
+      return a["Sentence Number"] - b["Sentence Number"];
+    });
+
+    const exportData = isSimpleExport 
+        ? analysisExport 
+        : {
+            "Analysis": analysisExport,
+            "The Complete Story": {
+              "Title": storyData.title,
+              "Chapters": originalCompleteStory.Chapters,
+            }
+          };
+
+    const jsonString = JSON.stringify(exportData, null, 2);
+    navigator.clipboard.writeText(jsonString)
+      .then(() => {
+        setClipboardStatus(isSimpleExport ? "Simple annotations copied!" : "Full annotated story copied!");
+        setTimeout(() => setClipboardStatus(null), 2000);
+      })
+      .catch(() => setError("Failed to copy to clipboard."));
+  }, [storyData, originalCompleteStory]);
+
+  // Save current annotation to localStorage (multi)
+  const handleSaveToLocal = useCallback(() => {
+    if (!storyData || !originalCompleteStory) {
+      setError("No story data to save.");
+      return;
+    }
+    const title = storyData.title.trim();
+    if (!title) {
+      setError("Story title is required to save.");
+      return;
+    }
+    const allSaved = getAllSaved();
+    const dataToSave = {
+      storyData: {
+        ...storyData,
+        chapters: Array.from(storyData.chapters.entries()),
+      },
+      originalCompleteStory,
+    };
+    if (allSaved[title]) {
+      setPendingSaveData({ title, dataToSave });
+      setShowOverwriteDialog(true);
+      return;
+    }
+    allSaved[title] = dataToSave;
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(allSaved));
+    setLocalStatus(`Saved "${title}" to local storage!`);
+    setTimeout(() => setLocalStatus(null), 2000);
+  }, [storyData, originalCompleteStory]);
+
+  // Confirm overwrite
+  const confirmOverwrite = () => {
+    if (!pendingSaveData) return;
+    const allSaved = getAllSaved();
+    allSaved[pendingSaveData.title] = pendingSaveData.dataToSave;
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(allSaved));
+    setLocalStatus(`Overwrote "${pendingSaveData.title}" in local storage!`);
+    setTimeout(() => setLocalStatus(null), 2000);
+    setShowOverwriteDialog(false);
+    setPendingSaveData(null);
+  };
+
+  // Cancel overwrite
+  const cancelOverwrite = () => {
+    setShowOverwriteDialog(false);
+    setPendingSaveData(null);
+  };
+
+  // Helper to get all saved
+  const getAllSaved = (): Record<string, any> => {
+    try {
+      const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (!raw) return {};
+      return JSON.parse(raw);
+    } catch {
+      return {};
+    }
+  };
+
+  // Show load dialog with list of saved titles
+  const handleLoadFromLocal = useCallback(() => {
+    const allSaved = getAllSaved();
+    setSavedTitles(Object.keys(allSaved));
+    setShowLoadDialog(true);
+  }, []);
+
+  // Load a specific annotation by title
+  const handlePickLoad = (title: string) => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const allSaved = getAllSaved();
+      const parsed = allSaved[title];
+      if (!parsed || !parsed.storyData || !parsed.originalCompleteStory) throw new Error("Saved data is corrupted.");
+      const chaptersMap = new Map<number, AnalysisItem[]>(parsed.storyData.chapters);
+      setStoryData({
+        ...parsed.storyData,
+        chapters: chaptersMap,
+      });
+      setOriginalCompleteStory(parsed.originalCompleteStory);
+      setLocalStatus(`Loaded "${title}" from local storage!`);
+      setTimeout(() => setLocalStatus(null), 2000);
+      setShowLoadDialog(false);
+    } catch (e: any) {
+      setError(`Failed to load "${title}": ${e.message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const displayChapters: DisplayChapter[] = useMemo(() => {
     if (!storyData) return [];
@@ -451,8 +638,92 @@ const App: React.FC = () => {
           </div>
         )}
 
-        <FileImporter onFileLoad={handleFileLoad} onProcessingError={handleProcessingError} />
-        
+        <div className="flex flex-col sm:flex-row gap-3">
+          <FileImporter onFileLoad={handleFileLoad} onProcessingError={handleProcessingError} />
+          <button
+            onClick={handleImportFromClipboard}
+            className="flex-1 px-4 py-2 bg-sky-700 hover:bg-sky-600 text-white font-semibold rounded-lg shadow transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-sky-400"
+            title="Import JSON from clipboard"
+          >
+            Import from Clipboard
+          </button>
+          <button
+            onClick={handleSaveToLocal}
+            className="flex-1 px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white font-semibold rounded-lg shadow transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+            title="Save annotation to browser"
+          >
+            Save to Local
+          </button>
+          <button
+            onClick={handleLoadFromLocal}
+            className="flex-1 px-4 py-2 bg-yellow-700 hover:bg-yellow-600 text-white font-semibold rounded-lg shadow transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-yellow-400"
+            title="Load previous annotation from browser"
+          >
+            Load from Local
+          </button>
+        </div>
+        {clipboardStatus && (
+          <div className="text-green-400 text-center font-semibold">{clipboardStatus}</div>
+        )}
+        {localStatus && (
+          <div className="text-emerald-400 text-center font-semibold">{localStatus}</div>
+        )}
+
+        {/* Overwrite confirmation dialog */}
+        {showOverwriteDialog && (
+          <div className="fixed inset-0 flex items-center justify-center z-50 bg-black bg-opacity-60">
+            <div className="bg-slate-800 p-6 rounded-lg shadow-xl max-w-sm w-full text-center">
+              <p className="text-lg text-yellow-300 mb-4">
+                An annotation with the title "<span className="font-bold">{pendingSaveData?.title}</span>" already exists.<br />
+                Overwrite it?
+              </p>
+              <div className="flex justify-center gap-4">
+                <button
+                  onClick={confirmOverwrite}
+                  className="px-4 py-2 bg-yellow-600 hover:bg-yellow-500 text-white rounded font-semibold"
+                >
+                  Overwrite
+                </button>
+                <button
+                  onClick={cancelOverwrite}
+                  className="px-4 py-2 bg-slate-600 hover:bg-slate-500 text-white rounded font-semibold"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Load dialog */}
+        {showLoadDialog && (
+          <div className="fixed inset-0 flex items-center justify-center z-50 bg-black bg-opacity-60">
+            <div className="bg-slate-800 p-6 rounded-lg shadow-xl max-w-sm w-full text-center">
+              <p className="text-lg text-cyan-200 mb-4">Select a saved annotation to load:</p>
+              <div className="max-h-60 overflow-y-auto mb-4">
+                {savedTitles.length === 0 && (
+                  <div className="text-slate-400">No saved annotations found.</div>
+                )}
+                {savedTitles.map(title => (
+                  <button
+                    key={title}
+                    onClick={() => handlePickLoad(title)}
+                    className="block w-full text-left px-4 py-2 mb-2 bg-slate-700 hover:bg-sky-700 text-sky-200 rounded transition"
+                  >
+                    {title}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => setShowLoadDialog(false)}
+                className="px-4 py-2 bg-slate-600 hover:bg-slate-500 text-white rounded font-semibold"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
         {storyData && (
           <div className="sticky top-0 z-10 bg-slate-900/80 backdrop-blur-sm -mx-4 sm:-mx-6 px-4 sm:px-6 py-4 rounded-b-lg shadow-lg mb-4"> {/* Sticky container */}
             <div className="p-4 bg-slate-800/70 rounded-lg shadow-inner space-y-4">
@@ -507,6 +778,20 @@ const App: React.FC = () => {
                 >
                   <DownloadIcon className="w-5 h-5 mr-2" />
                   Export Simple Annotations
+                </button>
+                <button
+                  onClick={() => handleCopyExport(false)}
+                  className="w-full flex items-center justify-center px-6 py-3 bg-green-800 hover:bg-green-700 text-white font-semibold rounded-lg shadow-md transition-colors duration-150 ease-in-out focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-opacity-75"
+                >
+                  <DownloadIcon className="w-5 h-5 mr-2" />
+                  Copy Full Annotated Story
+                </button>
+                <button
+                  onClick={() => handleCopyExport(true)}
+                  className="w-full flex items-center justify-center px-6 py-3 bg-blue-800 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-md transition-colors duration-150 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-opacity-75"
+                >
+                  <DownloadIcon className="w-5 h-5 mr-2" />
+                  Copy Simple Annotations
                 </button>
             </div>
             <StoryDisplay
