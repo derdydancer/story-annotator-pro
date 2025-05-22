@@ -1,0 +1,8 @@
+{
+  "name": "Story Annotator Pro",
+  "description": "An application for reviewing, annotating, and exporting stories. Users can import stories in a specific JSON format, add comments to individual sentences, and then export the annotated story.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "prompt": ""
+}
