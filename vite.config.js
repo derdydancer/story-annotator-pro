@@ -1,5 +1,7 @@
 import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
 
 export default defineConfig({
-  base: '/story-annotator-pro/', // Use your repo name here depending on where you host the app
+  plugins: [react()],
+  base: '/story-annotator-pro/', // <-- Add this line
 });

@@ -1,14 +1,29 @@
-# Run and deploy your AI Studio app
+# Story Annotator Pro
 
-This contains everything you need to run your app locally.
+## Local Development
 
-## Run Locally
+```bash
+npm install
+npm run dev
+```
 
-**Prerequisites:**  Node.js
+## Build
 
+```bash
+npm run build
+```
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## Deploy to GitHub Pages
+
+1. Make sure your repo is pushed to GitHub.
+2. Update `vite.config.js` with the correct `base` (should be `/story-annotator-pro/`).
+3. Run:
+
+   ```bash
+   npm run deploy
+   ```
+
+4. Go to your repo settings on GitHub, enable GitHub Pages, and set the source to the `gh-pages` branch.
+
+Your site will be available at:  
+`https://<your-username>.github.io/story-annotator-pro/`
