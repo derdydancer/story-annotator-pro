@@ -4,7 +4,6 @@ import FileImporter from './components/FileImporter';
 import StoryDisplay from './components/StoryDisplay';
 import AnnotationModal from './components/AnnotationModal';
 import { DownloadIcon, EditIcon, UsersIcon, UserIcon } from './components/icons';
-import HelpPage from './HelpPage';
 
 const generateUniqueId = () => `id-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
@@ -27,7 +26,6 @@ const App: React.FC = () => {
   const [pendingSaveData, setPendingSaveData] = useState<any>(null);
   const [showLoadDialog, setShowLoadDialog] = useState(false);
   const [savedTitles, setSavedTitles] = useState<string[]>([]);
-  const [showHelp, setShowHelp] = useState(false);
 
   const handleFileLoad = useCallback((data: ImportedStoryFormat) => {
     setIsLoading(true);
@@ -68,7 +66,7 @@ const App: React.FC = () => {
                 text: rawCommentText,
                 type: rawAppliesTo ? 'group' : 'single',
                 timestamp: Date.now(),
-                appliesToSentenceNumbers: rawAppliesTo ? rawAppliesTo.split(',').map((n: string) => parseInt(n.trim(), 10)).filter((n: number) => !isNaN(n)) : undefined,
+                appliesToSentenceNumbers: rawAppliesTo ? rawAppliesTo.split(',').map(n => parseInt(n.trim(), 10)).filter(n => !isNaN(n)) : undefined,
                 groupId: rawAppliesTo ? generateUniqueId() : undefined, // Generate a new groupId for legacy group comments
             });
         }
@@ -95,7 +93,7 @@ const App: React.FC = () => {
         newChaptersMap.get(chapterNum)!.push(item);
       });
 
-      newChaptersMap.forEach((sentences: AnalysisItem[]) => sentences.sort((a, b) => a["Sentence Number"] - b["Sentence Number"]));
+      newChaptersMap.forEach(sentences => sentences.sort((a, b) => a["Sentence Number"] - b["Sentence Number"]));
       
       setStoryData({
         title: data["The Complete Story"].Title,
@@ -157,11 +155,11 @@ const App: React.FC = () => {
       if (editingCommentDetail.groupId) { // Editing a group comment
         const groupIdToUpdate = editingCommentDetail.groupId;
         newChaptersMap.forEach((chapterSentences, chapterNum) => {
-          const updatedChapterSentences = (chapterSentences as AnalysisItem[]).map((s: AnalysisItem) => {
-            const commentIndex = s.comments.findIndex((c: CommentObject) => c.groupId === groupIdToUpdate && c.id === editingCommentDetail.id); // Ensure it's the exact comment instance or the one that triggered edit
+          const updatedChapterSentences = chapterSentences.map(s => {
+            const commentIndex = s.comments.findIndex(c => c.groupId === groupIdToUpdate && c.id === editingCommentDetail.id); // Ensure it's the exact comment instance or the one that triggered edit
             if (commentIndex !== -1) {
                // Update ALL comments with this groupId
-               const newCommentsForThisSentence = s.comments.map((c: CommentObject) => {
+               const newCommentsForThisSentence = s.comments.map(c => {
                  if (c.groupId === groupIdToUpdate) {
                    return { ...c, text: commentText.trim(), timestamp: now };
                  }
@@ -173,8 +171,8 @@ const App: React.FC = () => {
             // If the comment being edited (via its unique ID) is not in this sentence, but other comments from the same group are, update them too.
             // This logic is a bit complex if the `editingCommentDetail.id` is only for one instance of a group comment.
             // The most straightforward is: if a comment with `groupId` is edited, all comments with that `groupId` get the new text.
-            else if (s.comments.some((c: CommentObject) => c.groupId === groupIdToUpdate)) {
-               const newCommentsForThisSentence = s.comments.map((c: CommentObject) => {
+            else if (s.comments.some(c => c.groupId === groupIdToUpdate)) {
+               const newCommentsForThisSentence = s.comments.map(c => {
                  if (c.groupId === groupIdToUpdate) {
                    return { ...c, text: commentText.trim(), timestamp: now };
                  }
@@ -185,18 +183,18 @@ const App: React.FC = () => {
             }
             return s;
           });
-          newChaptersMap.set(chapterNum as number, updatedChapterSentences);
+          newChaptersMap.set(chapterNum, updatedChapterSentences);
         });
 
       } else { // Editing a single comment
         for (const [chapterNum, sentences] of newChaptersMap.entries()) {
-          const itemIndex = (sentences as AnalysisItem[]).findIndex((s: AnalysisItem) => s.comments.some((c: CommentObject) => c.id === editingCommentDetail.id));
+          const itemIndex = sentences.findIndex(s => s.comments.some(c => c.id === editingCommentDetail.id));
           if (itemIndex !== -1) {
-            const updatedItem = { ...(sentences as AnalysisItem[])[itemIndex] };
-            updatedItem.comments = updatedItem.comments.map((c: CommentObject) => 
+            const updatedItem = { ...sentences[itemIndex] };
+            updatedItem.comments = updatedItem.comments.map(c => 
               c.id === editingCommentDetail.id ? { ...c, text: commentText.trim(), timestamp: now } : c
             );
-            const updatedSentences = [...(sentences as AnalysisItem[])];
+            const updatedSentences = [...sentences];
             updatedSentences[itemIndex] = updatedItem;
             newChaptersMap.set(chapterNum, updatedSentences);
             itemThatContainedEditedComment = updatedItem;
@@ -229,20 +227,20 @@ const App: React.FC = () => {
       } else if ((editMode === 'mass' || editMode === 'group') && bulkSelectedSentenceIds.size > 0) {
         const commonGroupId = editMode === 'group' ? generateUniqueId() : undefined;
         const sentenceNumbersForGroup = editMode === 'group' 
-          ? Array.from(bulkSelectedSentenceIds).map((id: string) => {
+          ? Array.from(bulkSelectedSentenceIds).map(id => {
               for (const sentences of newChaptersMap.values()) {
-                const s = (sentences as AnalysisItem[]).find((sent: AnalysisItem) => sent.id === id);
+                const s = sentences.find(sent => sent.id === id);
                 if (s) return s["Sentence Number"];
               }
               return -1; 
-            }).filter((n: number) => n !== -1).sort((a: number, b: number) => a-b)
+            }).filter(n => n !== -1).sort((a,b) => a-b)
           : undefined;
 
-        bulkSelectedSentenceIds.forEach((itemId: string) => {
+        bulkSelectedSentenceIds.forEach(itemId => {
           for (const [chapterNum, sentences] of newChaptersMap.entries()) {
-            const itemIndex = (sentences as AnalysisItem[]).findIndex((s: AnalysisItem) => s.id === itemId);
+            const itemIndex = sentences.findIndex(s => s.id === itemId);
             if (itemIndex !== -1) {
-              const updatedItem = { ...(sentences as AnalysisItem[])[itemIndex] };
+              const updatedItem = { ...sentences[itemIndex] };
               const newComment: CommentObject = {
                 id: generateUniqueId(),
                 text: commentText.trim(),
@@ -251,7 +249,7 @@ const App: React.FC = () => {
                 ...(editMode === 'group' && { groupId: commonGroupId, appliesToSentenceNumbers: sentenceNumbersForGroup })
               };
               updatedItem.comments = [...updatedItem.comments, newComment];
-              const updatedSentences = [...(sentences as AnalysisItem[])];
+              const updatedSentences = [...sentences];
               updatedSentences[itemIndex] = updatedItem;
               newChaptersMap.set(chapterNum, updatedSentences);
               break; 
@@ -273,9 +271,9 @@ const App: React.FC = () => {
 
     const commentToDeleteDetails = (() => {
         for (const sentences of newChaptersMap.values()) {
-            for (const sentence of (sentences as AnalysisItem[])) {
+            for (const sentence of sentences) {
                 if (sentence.id === itemId) {
-                    return sentence.comments.find((c: CommentObject) => c.id === commentId);
+                    return sentence.comments.find(c => c.id === commentId);
                 }
             }
         }
@@ -286,23 +284,23 @@ const App: React.FC = () => {
     if (commentToDeleteDetails && commentToDeleteDetails.type === 'group' && commentToDeleteDetails.groupId) {
         const groupIdToDelete = commentToDeleteDetails.groupId;
         newChaptersMap.forEach((chapSentences, cn) => {
-            const updatedChapSentences = (chapSentences as AnalysisItem[]).map((s: AnalysisItem) => {
-                const newComments = s.comments.filter((c: CommentObject) => c.groupId !== groupIdToDelete);
+            const updatedChapSentences = chapSentences.map(s => {
+                const newComments = s.comments.filter(c => c.groupId !== groupIdToDelete);
                 if (s.id === itemId && s.comments.length !== newComments.length) { // Check if this sentence was affected
                      itemToUpdateInModal = { ...s, comments: newComments };
                 }
                 return { ...s, comments: newComments };
             });
-            newChaptersMap.set(cn as number, updatedChapSentences);
+            newChaptersMap.set(cn, updatedChapSentences);
         });
     } else { // Single comment deletion or non-group comment
         for (const [chapterNum, sentences] of newChaptersMap.entries()) {
-            const itemIndex = (sentences as AnalysisItem[]).findIndex((s: AnalysisItem) => s.id === itemId);
+            const itemIndex = sentences.findIndex(s => s.id === itemId);
             if (itemIndex !== -1) {
-                const currentItem = (sentences as AnalysisItem[])[itemIndex];
-                const updatedComments = currentItem.comments.filter((c: CommentObject) => c.id !== commentId);
+                const currentItem = sentences[itemIndex];
+                const updatedComments = currentItem.comments.filter(c => c.id !== commentId);
                 const updatedItem = { ...currentItem, comments: updatedComments };
-                const updatedSentences = [...(sentences as AnalysisItem[])];
+                const updatedSentences = [...sentences];
                 updatedSentences[itemIndex] = updatedItem;
                 newChaptersMap.set(chapterNum, updatedSentences);
                 itemToUpdateInModal = updatedItem;
@@ -315,7 +313,7 @@ const App: React.FC = () => {
 
     if (selectedAnalysisItem && selectedAnalysisItem.id === itemId) {
         // Refresh selectedAnalysisItem from the potentially modified newChaptersMap
-        const freshItem = Array.from(newChaptersMap.values()).flat().find((i: AnalysisItem) => i.id === itemId);
+        const freshItem = Array.from(newChaptersMap.values()).flat().find(i => i.id === itemId);
         setSelectedAnalysisItem(freshItem || null);
     }
 
@@ -329,8 +327,8 @@ const App: React.FC = () => {
     }
 
     const analysisExport: (ExportAnalysisItem | SimpleExportAnalysisItem)[] = [];
-    storyData.chapters.forEach((sentencesInChapter: AnalysisItem[]) => {
-      sentencesInChapter.forEach((item: AnalysisItem) => {
+    storyData.chapters.forEach((sentencesInChapter) => {
+      sentencesInChapter.forEach(item => {
         const latestComment = item.comments.length > 0 
           ? [...item.comments].sort((a, b) => b.timestamp - a.timestamp)[0]
           : null;
@@ -376,15 +374,14 @@ const App: React.FC = () => {
       return a["Sentence Number"] - b["Sentence Number"];
     });
     
-    const exportData = isSimpleExport 
-        ? analysisExport 
-        : {
-            "Analysis": analysisExport,
-            "The Complete Story": {
-              "Title": storyData.title,
-              "Chapters": originalCompleteStory.Chapters,
-            }
-          };
+    // Always wrap with The Complete Story, Title, and Chapters
+    const exportData = {
+      "Analysis": analysisExport,
+      "The Complete Story": {
+        "Title": storyData.title,
+        "Chapters": originalCompleteStory.Chapters,
+      }
+    };
 
     const jsonString = JSON.stringify(exportData, null, 2);
     const blob = new Blob([jsonString], { type: "application/json" });
@@ -435,8 +432,8 @@ const App: React.FC = () => {
       return;
     }
     const analysisExport: (ExportAnalysisItem | SimpleExportAnalysisItem)[] = [];
-    storyData.chapters.forEach((sentencesInChapter: AnalysisItem[]) => {
-      sentencesInChapter.forEach((item: AnalysisItem) => {
+    storyData.chapters.forEach((sentencesInChapter) => {
+      sentencesInChapter.forEach(item => {
         const latestComment = item.comments.length > 0 
           ? [...item.comments].sort((a, b) => b.timestamp - a.timestamp)[0]
           : null;
@@ -482,15 +479,14 @@ const App: React.FC = () => {
       return a["Sentence Number"] - b["Sentence Number"];
     });
 
-    const exportData = isSimpleExport 
-        ? analysisExport 
-        : {
-            "Analysis": analysisExport,
-            "The Complete Story": {
-              "Title": storyData.title,
-              "Chapters": originalCompleteStory.Chapters,
-            }
-          };
+    // Always wrap with The Complete Story, Title, and Chapters
+    const exportData = {
+      "Analysis": analysisExport,
+      "The Complete Story": {
+        "Title": storyData.title,
+        "Chapters": originalCompleteStory.Chapters,
+      }
+    };
 
     const jsonString = JSON.stringify(exportData, null, 2);
     navigator.clipboard.writeText(jsonString)
@@ -593,7 +589,7 @@ const App: React.FC = () => {
 
   const displayChapters: DisplayChapter[] = useMemo(() => {
     if (!storyData) return [];
-    return (Array.from(storyData.chapters.entries()) as [number, AnalysisItem[]][]) // explicit cast
+    return Array.from(storyData.chapters.entries())
       .map(([chapterNumber, sentences]) => ({ chapterNumber, sentences }))
       .sort((a, b) => a.chapterNumber - b.chapterNumber);
   }, [storyData]);
@@ -627,12 +623,6 @@ const App: React.FC = () => {
           Story Annotator Pro
         </h1>
         <p className="text-slate-400 mt-2 text-lg">Import, review, and annotate your stories with ease.</p>
-        <button
-          onClick={() => setShowHelp(true)}
-          className="mt-4 px-4 py-2 bg-slate-700 hover:bg-sky-600 text-sky-200 font-semibold rounded-lg shadow transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-sky-400"
-        >
-          Help & Instructions
-        </button>
       </header>
 
       <main className="w-full max-w-5xl space-y-8">
@@ -830,8 +820,6 @@ const App: React.FC = () => {
         bulkSelectionCount={bulkSelectedSentenceIds.size}
       />
       
-      {showHelp && <HelpPage onClose={() => setShowHelp(false)} />}
-
       <footer className="w-full max-w-5xl mt-12 pt-8 border-t border-slate-700 text-center">
         <p className="text-sm text-slate-500">Story Annotator Pro &copy; {new Date().getFullYear()}</p>
       </footer>

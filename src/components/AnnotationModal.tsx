@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { AnalysisItem, CommentObject, EditMode } from '../types';
 import { XMarkIcon, CheckIcon, TrashIcon, UserIcon, UsersIcon, EditIcon as PencilIcon, MicrophoneIcon, PencilSquareIcon } from './icons';
@@ -11,6 +10,30 @@ if (SpeechRecognition) {
   recognition.continuous = false;
   recognition.interimResults = false;
   recognition.lang = 'en-US'; // You might want to make this configurable
+}
+
+
+// Tool button config for programmable buttons
+const TOOL_BUTTONS_KEY = 'story-annotator-pro-tool-buttons';
+const defaultToolButtons = [
+  { label: 'Shorten', value: 'Shorten this sentence and remove unnecessary fluff' },
+  { label: 'Lengthen', value: 'Expand on this sentence and make it longer.' },
+  { label: 'Cut', value: 'Remove this part of the sentence: ""' },
+];
+
+function getStoredToolButtons() {
+  try {
+    const raw = localStorage.getItem(TOOL_BUTTONS_KEY);
+    if (!raw) return defaultToolButtons;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.length !== 3) return defaultToolButtons;
+    return parsed;
+  } catch {
+    return defaultToolButtons;
+  }
+}
+function setStoredToolButtons(buttons: { label: string; value: string }[]) {
+  localStorage.setItem(TOOL_BUTTONS_KEY, JSON.stringify(buttons));
 }
 
 
@@ -159,11 +182,29 @@ const AnnotationModal: React.FC<AnnotationModalProps> = ({
     };
   }, [isOpen, handleKeyDown]);
 
+  const [toolButtons, setToolButtons] = useState(getStoredToolButtons());
+  const [showToolButtonSettings, setShowToolButtonSettings] = useState(false);
+  const [toolButtonDrafts, setToolButtonDrafts] = useState(toolButtons);
+
+  // Keep toolButtons in sync with localStorage
+  useEffect(() => {
+    setToolButtons(getStoredToolButtons());
+  }, [showToolButtonSettings]);
+
+  // Tool button handlers
+  const handleToolButtonClick = (text: string) => {
+    setNewCommentText(text);
+    setTimeout(() => newCommentTextareaRef.current?.focus(), 50);
+  };
+
+  const isBulkModeNewComment = (editMode === 'mass' || editMode === 'group') && !item && bulkSelectionCount > 0;
+
   if (!isOpen) {
     return null;
   }
 
-  const isBulkModeNewComment = (editMode === 'mass' || editMode === 'group') && !item && bulkSelectionCount > 0;
+  // Only show tool buttons in single edit mode, not editing existing comment, not bulk
+  const showToolButtons = editMode === 'single' && item && !editingCommentDetail && !isBulkModeNewComment;
   const modalTitle = editingCommentDetail 
     ? `Edit Annotation`
     : (isBulkModeNewComment 
@@ -183,17 +224,29 @@ const AnnotationModal: React.FC<AnnotationModalProps> = ({
             {!editingCommentDetail && !isBulkModeNewComment && item && <UserIcon className="w-6 h-6 mr-2 text-sky-400" />}
             {modalTitle}
           </h2>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-sky-400 transition-colors p-1 rounded-full -mr-2"
-            aria-label="Close annotation modal"
-          >
-            <XMarkIcon className="w-7 h-7" />
-          </button>
+          <div className="flex items-center gap-2">
+            {showToolButtons && (
+              <button
+                onClick={() => setShowToolButtonSettings(true)}
+                className="text-slate-400 hover:text-sky-400 p-1.5 rounded-full"
+                title="Configure tool buttons"
+                aria-label="Configure tool buttons"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M11.25 2.25c.414 0 .75.336.75.75v1.5a.75.75 0 01-1.5 0v-1.5c0-.414.336-.75.75-.75zm0 16.5c.414 0 .75.336.75.75v1.5a.75.75 0 01-1.5 0v-1.5c0-.414.336-.75.75-.75zm8.25-8.25c0 .414-.336.75-.75.75h-1.5a.75.75 0 010-1.5h1.5c.414 0 .75.336.75.75zm-16.5 0c0 .414.336.75.75.75h1.5a.75.75 0 010-1.5h-1.5a.75.75 0 00-.75.75zm13.364-5.114a.75.75 0 011.06 1.06l-1.06 1.06a.75.75 0 11-1.06-1.06l1.06-1.06zm-12.728 0a.75.75 0 011.06 0l1.06 1.06a.75.75 0 11-1.06 1.06l-1.06-1.06a.75.75 0 010-1.06zm12.728 12.728a.75.75 0 01-1.06 1.06l-1.06-1.06a.75.75 0 111.06-1.06l1.06 1.06zm-12.728 0a.75.75 0 010-1.06l1.06-1.06a.75.75 0 111.06 1.06l-1.06 1.06a.75.75 0 01-1.06 0z" /></svg>
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="text-slate-400 hover:text-sky-400 transition-colors p-1 rounded-full -mr-2"
+              aria-label="Close annotation modal"
+            >
+              <XMarkIcon className="w-7 h-7" />
+            </button>
+          </div>
         </div>
 
         <div className="overflow-y-auto pr-2 space-y-6 flex-grow custom-scrollbar">
-          {item && !isBulkModeNewComment && ( // Show sentence details only if an item is selected (single mode or editing existing)
+          {item && !isBulkModeNewComment && (
             <>
               <div className="bg-slate-700 p-4 rounded-lg">
                 <p className="text-sm text-slate-400 mb-1">Original Sentence (Chapter {item["Chapter Number"]}, Sentence {item["Sentence Number"]})</p>
@@ -205,7 +258,7 @@ const AnnotationModal: React.FC<AnnotationModalProps> = ({
                   {Object.entries(item.additionalAnalysis).map(([key, value]) => (
                     <div key={key} className="bg-slate-700 p-3 rounded-md">
                       <p className="text-slate-400 font-medium">{key}:</p>
-                      <p className="text-slate-200 break-words">{value}</p>
+                      <p className="text-slate-200 break-words">{String(value)}</p>
                     </div>
                   ))}
                 </div>
@@ -215,7 +268,7 @@ const AnnotationModal: React.FC<AnnotationModalProps> = ({
                 <div>
                   <h3 className="text-lg font-medium text-sky-300 mb-3">Existing Annotations:</h3>
                   <div className="space-y-3 max-h-60 overflow-y-auto custom-scrollbar pr-1">
-                    {item.comments.slice().sort((a,b) => b.timestamp - a.timestamp).map((comment) => (
+                    {item.comments.slice().sort((a: CommentObject, b: CommentObject) => b.timestamp - a.timestamp).map((comment: CommentObject) => (
                       <div key={comment.id} className={`bg-slate-700 p-3 rounded-md text-sm ${editingCommentDetail?.id === comment.id ? 'ring-2 ring-sky-500' : ''}`}>
                         <div className="flex justify-between items-start">
                             <div>
@@ -251,7 +304,7 @@ const AnnotationModal: React.FC<AnnotationModalProps> = ({
               )}
             </>
           )}
-            
+          
           <div>
             <label htmlFor="newComment" className="block text-sm font-medium text-sky-300 mb-2">
               {editingCommentDetail ? 'Edit Annotation Text' : (item && item.comments.length > 0 && !isBulkModeNewComment ? 'Add New Annotation' : (isBulkModeNewComment ? 'Enter Annotation Text' : 'Your Annotation'))} (Ctrl/Cmd + Enter to save)
@@ -283,7 +336,48 @@ const AnnotationModal: React.FC<AnnotationModalProps> = ({
             {speechError && <p className="text-xs text-red-400 mt-1">{speechError}</p>}
           </div>
         </div>
-
+        {/* TOOL BUTTONS ROW - moved here, above textarea */}
+          {showToolButtons && (
+            <div className="flex flex-wrap gap-2 mb-2">
+                <button
+                type="button"
+                className="px-3 py-1.5 rounded bg-sky-700 hover:bg-sky-600 text-white text-xs font-semibold shadow"
+                onClick={() => {
+                  // Move cursor to where the sentence starts in the textarea after inserting
+                  const sentence = item?.Sentence ?? '';
+                  const text = `Change the sentence to: "${sentence}"`;
+                  setNewCommentText(text);
+                  setTimeout(() => {
+                  if (newCommentTextareaRef.current) {
+                    // Place cursor just after the colon and space
+                    const pos = text.indexOf('"') + 1;
+                    newCommentTextareaRef.current.focus();
+                    newCommentTextareaRef.current.setSelectionRange(pos, pos);
+                  }
+                  }, 10);
+                }}
+                >
+                Copy and Edit
+                </button>
+              <button
+                type="button"
+                className="px-3 py-1.5 rounded bg-red-700 hover:bg-red-600 text-white text-xs font-semibold shadow"
+                onClick={() => handleToolButtonClick('Remove this sentence altogether')}
+              >
+                Remove comment
+              </button>
+              {toolButtons.map((btn) => (
+                <button
+                  key={btn.label}
+                  type="button"
+                  className="px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-sky-200 text-xs font-semibold shadow border border-sky-700"
+                  onClick={() => handleToolButtonClick(btn.value)}
+                >
+                  {btn.label}
+                </button>
+              ))}
+            </div>
+          )}
         <div className="mt-8 flex justify-end space-x-3 border-t border-slate-700 pt-6">
           <button
             onClick={onClose}
@@ -303,6 +397,65 @@ const AnnotationModal: React.FC<AnnotationModalProps> = ({
           </button>
         </div>
       </div>
+      {/* TOOL BUTTON SETTINGS MODAL */}
+      {showToolButtonSettings && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-60">
+          <div className="bg-slate-800 p-6 rounded-lg shadow-xl max-w-md w-full text-center">
+            <h3 className="text-lg text-sky-300 mb-4 font-semibold">Configure Tool Buttons</h3>
+            <form
+              onSubmit={e => {
+                e.preventDefault();
+                setStoredToolButtons(toolButtonDrafts);
+                setToolButtons(toolButtonDrafts);
+                setShowToolButtonSettings(false);
+              }}
+              className="space-y-4"
+            >
+              {toolButtonDrafts.map((btn, idx) => (
+                <div key={idx} className="flex flex-col gap-1 mb-2">
+                  <input
+                    type="text"
+                    className="px-3 py-2 rounded bg-slate-700 text-slate-100 border border-slate-600 focus:ring-2 focus:ring-sky-400"
+                    value={btn.label}
+                    onChange={e => {
+                      const next = [...toolButtonDrafts];
+                      next[idx] = { ...next[idx], label: e.target.value };
+                      setToolButtonDrafts(next);
+                    }}
+                    placeholder={`Button ${idx + 1} label`}
+                  />
+                  <input
+                    type="text"
+                    className="px-3 py-2 rounded bg-slate-700 text-slate-100 border border-slate-600 focus:ring-2 focus:ring-sky-400"
+                    value={btn.value}
+                    onChange={e => {
+                      const next = [...toolButtonDrafts];
+                      next[idx] = { ...next[idx], value: e.target.value };
+                      setToolButtonDrafts(next);
+                    }}
+                    placeholder={`Button ${idx + 1} value`}
+                  />
+                </div>
+              ))}
+              <div className="flex justify-end gap-2 mt-4">
+                <button
+                  type="button"
+                  onClick={() => { setToolButtonDrafts(toolButtons); setShowToolButtonSettings(false); }}
+                  className="px-4 py-2 bg-slate-600 hover:bg-slate-500 text-white rounded font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded font-semibold"
+                >
+                  Save
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
       <style>{`
         @keyframes modal-appear {
           0% { transform: scale(0.95); opacity: 0; }
